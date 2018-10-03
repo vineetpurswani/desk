@@ -4,6 +4,7 @@
 PREFIX="${DESK_DIR:-$HOME/.desk}"
 DESKS="${DESK_DESKS_DIR:-$PREFIX/desks}"
 DESKFILE_NAME=Deskfile
+DESK_WORKSPACE="${DESK_WORKSPACE:-$PREFIX/workspace}"
 
 
 ## Commands
@@ -35,6 +36,15 @@ Usage:
     $PROGRAM edit [desk-name]
         Edit (or create) a deskfile with the name specified, otherwise
         edit the active deskfile.
+    $PROGRAM (copy|cp) <dest-desk> <source-desk>
+        Copy deskfile of source desk to destination desk
+    $PROGRAM (remove|rm) <desk-name>
+        Remove deskfile and workspace of the given desk
+    $PROGRAM workspace <desk-name> [--copy <source-desk>]
+        Create a deskfile and a workspace with the name specified. If
+        <desk-name> is "mktemp", a temporary desk-name is chosen, which is
+        of the form tempdesk.XXXX. If --copy flag is given, <source-desk>
+        deskfile is copied to the current desk.
     $PROGRAM help
         Show this text.
     $PROGRAM version
@@ -57,6 +67,7 @@ cmd_init() {
     if [ ! -d "${NEW_PREFIX}" ]; then
         echo "${NEW_PREFIX} doesn't exist, attempting to create."
         mkdir -p "$NEW_PREFIX/desks"
+        mkdir -p "$NEW_PREFIX/workspace"
     fi
 
     local SHELLTYPE=$(get_running_shell)
@@ -87,6 +98,10 @@ cmd_init() {
     else
       echo "[ -n \"\$DESK_ENV\" ] && source \"\$DESK_ENV\" || true" >> "$USER_SHELLRC"
     fi
+
+    # Export DESK_DIR
+    printf "\n# Export DESK_DIR for desk application\n" >> "$USER_SHELLRC"
+    echo "export DESK_DIR=$NEW_PREFIX" >> "$USER_SHELLRC"
 
     echo "Done. Start adding desks to ${NEW_PREFIX}/desks!"
 }
@@ -123,24 +138,69 @@ cmd_go() {
     fi
 
     # Shift desk name so we can forward on all arguments to the shell.
-    shift;
+    shift
 
     if [ -z "$DESKPATH" ]; then
         echo "Desk $TODESK (${TODESK}${DESKEXT}) not found in $DESKS"
         exit 1
     else
+        echo "Setting up $TODESK desk..."
         local SHELL_EXEC="$(get_running_shell)"
         DESK_NAME="${TODESK}" DESK_ENV="${DESKPATH}" exec "${SHELL_EXEC}" "$@"
     fi
 }
 
-
 cmd_run() {
     local TODESK="$1"
-    shift;
-    cmd_go "$TODESK" -ic "$@"
+    shift
+    cmd_go "$TODESK" -ic "$*"
 }
 
+cmd_workspace() {
+    local TODESK="$1"
+    local DESK_DIRECTORY="${DESK_WORKSPACE}/${TODESK}"
+    if [[ $TODESK == "mktemp" ]]; then
+        DESK_DIRECTORY=$(mktemp -d "$DESK_WORKSPACE/tempdesk.XXXX")
+        TODESK=${DESK_DIRECTORY##*/}
+        echo "Creating $TODESK desk..."
+    fi
+    shift
+
+    case "$1" in
+        --copy) shift; cmd_copy $TODESK $@ ;;
+        *) cmd_edit $TODESK ;;
+    esac
+}
+
+cmd_remove() {
+    local TODESK="$1"
+    local DESK_DIRECTORY="${DESK_WORKSPACE}/${TODESK}"
+    local DESKEXT=$(get_deskfile_extension)
+    local DESKPATH="${DESKS}/${TODESK}${DESKEXT}"
+
+    [[ -d "$DESK_DIRECTORY" ]] && rm -r "$DESK_DIRECTORY"
+    [[ -f "$DESKPATH" ]] && rm "$DESKPATH"
+}
+
+cmd_copy() {
+    if [[ $# -lt 2 ]]; then
+        cmd_usage
+        exit 1
+    fi
+
+    local TODESK="$1"
+    local FROMDESK="$2"
+    local DESKEXT=$(get_deskfile_extension)
+    local TODESKPATH="${DESKS}/${TODESK}${DESKEXT}"
+    local FROMDESKPATH="${DESKS}/${FROMDESK}${DESKEXT}"
+
+    if [[ ! -f $FROMDESKPATH ]]; then
+        echo "No $FROMDESK desk. Run 'desk edit $FROMDESK' first."
+        exit 1
+    fi
+
+    cp "$FROMDESKPATH" "$TODESKPATH"
+}
 
 # Usage:        desk list [options]
 # Description:  List all desks along with a description
@@ -317,7 +377,6 @@ print_aligned() {
   }'
 }
 
-
 PROGRAM="${0##*/}"
 
 case "$1" in
@@ -328,6 +387,9 @@ case "$1" in
     go|.) shift;               cmd_go "$@" ;;
     run) shift;                cmd_run "$@" ;;
     edit) shift;               cmd_edit "$@" ;;
+    workspace) shift;          cmd_workspace "$@" ;;
+    remove|rm) shift;          cmd_remove "$@" ;;
+    copy|cp) shift;            cmd_copy "$@" ;;
     *)                         cmd_current "$@" ;;
 esac
 exit 0
