@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # vim: set filetype=sh:
 
-PREFIX="${DESK_DIR:-$HOME/.desk}"
+PREFIX="${DESK_ROOT:-$HOME/.desk}"
 DESKS="${DESK_DESKS_DIR:-$PREFIX/desks}"
 DESKFILE_NAME=Deskfile
 DESK_WORKSPACE="${DESK_WORKSPACE:-$PREFIX/workspace}"
@@ -40,7 +40,7 @@ Usage:
         Copy deskfile of source desk to destination desk
     $PROGRAM (remove|rm) <desk-name>
         Remove deskfile and workspace of the given desk
-    $PROGRAM workspace <desk-name> [--copy <source-desk>]
+    $PROGRAM new <desk-name> [--copy <source-desk>]
         Create a deskfile and a workspace with the name specified. If
         <desk-name> is "mktemp", a temporary desk-name is chosen, which is
         of the form tempdesk.XXXX. If --copy flag is given, <source-desk>
@@ -99,9 +99,9 @@ cmd_init() {
       echo "[ -n \"\$DESK_ENV\" ] && source \"\$DESK_ENV\" || true" >> "$USER_SHELLRC"
     fi
 
-    # Export DESK_DIR
-    printf "\n# Export DESK_DIR for desk application\n" >> "$USER_SHELLRC"
-    echo "export DESK_DIR=$NEW_PREFIX" >> "$USER_SHELLRC"
+    # Export DESK_ROOT
+    printf "\n# Export DESK_ROOT for desk application\n" >> "$USER_SHELLRC"
+    echo "export DESK_ROOT=\"$NEW_PREFIX\"" >> "$USER_SHELLRC"
 
     echo "Done. Start adding desks to ${NEW_PREFIX}/desks!"
 }
@@ -146,7 +146,7 @@ cmd_go() {
     else
         echo "Setting up $TODESK desk..."
         local SHELL_EXEC="$(get_running_shell)"
-        DESK_NAME="${TODESK}" DESK_ENV="${DESKPATH}" exec "${SHELL_EXEC}" "$@"
+        DESK_DIR="${DESK_WORKSPACE}/${TODESK}" DESK_NAME="${TODESK}" DESK_ENV="${DESKPATH}" exec "${SHELL_EXEC}" "$@"
     fi
 }
 
@@ -156,15 +156,18 @@ cmd_run() {
     cmd_go "$TODESK" -ic "$*"
 }
 
-cmd_workspace() {
+cmd_new() {
     local TODESK="$1"
-    local DESK_DIRECTORY="${DESK_WORKSPACE}/${TODESK}"
+    local DESK_DIR="${DESK_WORKSPACE}/${TODESK}"
     if [[ $TODESK == "mktemp" ]]; then
-        DESK_DIRECTORY=$(mktemp -d "$DESK_WORKSPACE/tempdesk.XXXX")
-        TODESK=${DESK_DIRECTORY##*/}
+        DESK_DIR=$(mktemp -d "$DESK_WORKSPACE/tempdesk.XXXX")
+        TODESK=${DESK_DIR##*/}
         echo "Creating $TODESK desk..."
     fi
     shift
+
+    # Create if not present
+    mkdir -p $DESK_DIR
 
     case "$1" in
         --copy) shift; cmd_copy $TODESK $@ ;;
@@ -174,11 +177,11 @@ cmd_workspace() {
 
 cmd_remove() {
     local TODESK="$1"
-    local DESK_DIRECTORY="${DESK_WORKSPACE}/${TODESK}"
+    local DESK_DIR="${DESK_WORKSPACE}/${TODESK}"
     local DESKEXT=$(get_deskfile_extension)
     local DESKPATH="${DESKS}/${TODESK}${DESKEXT}"
 
-    [[ -d "$DESK_DIRECTORY" ]] && rm -r "$DESK_DIRECTORY"
+    [[ -d "$DESK_DIR" ]] && rm -r "$DESK_DIR"
     [[ -f "$DESKPATH" ]] && rm "$DESKPATH"
 }
 
@@ -387,7 +390,7 @@ case "$1" in
     go|.) shift;               cmd_go "$@" ;;
     run) shift;                cmd_run "$@" ;;
     edit) shift;               cmd_edit "$@" ;;
-    workspace) shift;          cmd_workspace "$@" ;;
+    new) shift;                cmd_new "$@" ;;
     remove|rm) shift;          cmd_remove "$@" ;;
     copy|cp) shift;            cmd_copy "$@" ;;
     *)                         cmd_current "$@" ;;
